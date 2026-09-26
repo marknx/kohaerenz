@@ -254,7 +254,7 @@ def link_refs(text: str) -> list[str]:
 
 
 def check_links(c: Ctx) -> list[Finding]:
-    out = []
+    out, names = [], None
     for doc in as_list(c.repo.cfg["entry_docs"]):
         p = c.repo.root / doc
         if not p.is_file():
@@ -262,8 +262,13 @@ def check_links(c: Ctx) -> list[Finding]:
         for ref in dict.fromkeys(link_refs(p.read_text(encoding="utf-8", errors="replace"))):
             if match(ref, c.repo.cfg["links_ignore"]):
                 continue
-            if not ((p.parent / ref).exists() or (c.repo.root / ref).exists()):
-                out.append(Finding("links", f"{doc}:{ref}", f"{doc} points to '{ref}', which does not exist"))
+            if (p.parent / ref).exists() or (c.repo.root / ref).exists():
+                continue
+            if "/" not in ref:  # a bare file name is fine if such a file exists anywhere
+                names = names if names is not None else {f.rsplit("/", 1)[-1] for f in c.repo.tracked_files()}
+                if ref in names:
+                    continue
+            out.append(Finding("links", f"{doc}:{ref}", f"{doc} points to '{ref}', which does not exist"))
     return out
 
 

@@ -255,7 +255,7 @@ def test_links_flags_missing_paths(repo):
 
 def test_links_clean(repo):
     repo.write("docs/map.md").write("src/app.py")
-    repo.write("AGENTS.md", "See `docs/map.md`, `src/app.py:12`, `origin/main`, [web](https://example.com), "
+    repo.write("AGENTS.md", "See `docs/map.md`, `src/app.py:12`, `app.py`, `origin/main`, [web](https://example.com), "
                             "`0.1.0`, `yaml.safe_load`, `~/private.md`, `<project>/x.md`.\n")
     repo.write("CLAUDE.md", "@AGENTS.md\n").commit()
     code, out = repo.kz("links")
