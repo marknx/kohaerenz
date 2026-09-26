@@ -18,7 +18,7 @@ kz --version
 | `kz fresh [--fetch]` | Is HEAD at `origin/main`? Commits behind/ahead. Exit 1 when behind. |
 | `kz links` | Paths referenced in `AGENTS.md` / `CLAUDE.md` (backticked paths with a file extension or trailing `/`, markdown links, `@file` includes) that do not exist. |
 | `kz brief --paths P... --text "job"` | ≤ 60 lines of context for a job: freshness, touched features/journeys, rules whose `applies_to` match (with `owner`), rejected ideas whose keywords appear in the text, open `dead` entries, "does it exist already?" (`git grep` for routes and backticked identifiers), matching ADRs. `--json` available. |
-| `kz check` | All checks below, ratcheted against the baseline. Options: `--base REF`, `--pr-body-file F`, `--fast` (skip inventory checks), `--only a,b`, `--strict`, `--update-baseline [--allow-grow]`, `--json`, `-v`. |
+| `kz check` | All checks below, ratcheted against the baseline. Options: `--base REF`, `--pr-body-file F`, `--fast` (skip inventory checks), `--only a,b`, `--strict`, `--require-all` (any skipped check fails - use in CI), `--update-baseline [--allow-grow]`, `--json`, `-v`. |
 | `kz scope [--base REF] [--paths P...]` | Reviewer list: rule anchors added/removed in the diff, deleted lines outside the job paths, touched features/journeys, matching rules. |
 | `kz inventory [--write] [--json]` | Routes, `data-feature` ids, endpoints and tables read from the code by the adapters. `--write` writes `docs/produkt/inventar.json` (sorted, deterministic). |
 | `kz init --stufe 0\|1\|2 --typ nextjs\|fastapi\|python-cli\|static` | Skeleton files for the stage. Never overwrites. |
@@ -42,8 +42,14 @@ Global options: `-C DIR` (run in another directory), `--config FILE` (config out
 | `links` | as `kz links` | – |
 
 The diff base is the merge-base of `--base` (default `main_branch`, i.e. `origin/main`) and HEAD; only
-committed changes count. Checks whose input is missing are listed as `skip`, never silently passed.
+committed changes count. Checks whose input is missing are listed as `skip` and the result reads
+`OK (N skipped)`, never a plain `OK`. From stage 1 on, a `main_branch` (or `--base`) that cannot be resolved is a
+config error (exit 2), so a typo cannot switch the diff checks off. Unknown config keys and paths pointing outside
+the repo are config errors too.
 A new page/endpoint/table is caught by `map` even when the PR text claims the map is unchanged.
+
+The `nextjs-app` adapter walks `app/**/page.*` itself instead of reusing a project's own route script: `kz` must
+work in any repo with Python alone, and such scripts are usually Node-based and tied to one project.
 
 Not implemented in v0.1 (warn-only in the concept): `registries`, `wiring`, `collisions`; also `watch`, `report`, `stufe`.
 
