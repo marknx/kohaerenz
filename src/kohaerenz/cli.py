@@ -142,6 +142,8 @@ def cmd_init(repo: Repo, a) -> int:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         print(f"created  {rel}")
+    if a.stufe >= 2 and cfg["adapters"]:
+        print("next     kz inventory --write  (stage 2 checks the generated inventory)")
     return 0
 
 
