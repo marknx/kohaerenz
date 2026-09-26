@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kohaerenz"
-version = "0.1.0"
+version = "0.1.1"
 description = "Coherence checks for a repo: product map, rules, anchors, drift - plain text and git, no LLM."
 readme = "README.md"
 requires-python = ">=3.11"

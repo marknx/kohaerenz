@@ -48,6 +48,11 @@ config error (exit 2), so a typo cannot switch the diff checks off. Unknown conf
 the repo are config errors too.
 A new page/endpoint/table is caught by `map` even when the PR text claims the map is unchanged.
 
+File walks (inventory adapters, `links`, `timebomb`) only see files git would see: tracked plus
+untracked-not-ignored (`git ls-files --cached --others --exclude-standard`). Gitignored private files in a checkout
+never show up, so local runs and CI agree. Per-adapter `exclude: [glob, ...]` drops anything else. The configured
+`openapi` file is read even when it is gitignored (it is usually generated).
+
 The `nextjs-app` adapter walks `app/**/page.*` itself instead of reusing a project's own route script: `kz` must
 work in any repo with Python alone, and such scripts are usually Node-based and tied to one project.
 
@@ -76,7 +81,7 @@ tool_version: 0.1.0
 typ: nextjs
 main_branch: origin/main
 adapters:                # none = generic (no inventory)
-  - {name: nextjs-app, app_dir: web/src/app, src_dirs: [web/src]}
+  - {name: nextjs-app, app_dir: web/src/app, src_dirs: [web/src], exclude: ["web/src/app/lab/**"]}
   - {name: fastapi, openapi: backend/openapi.json, model_dirs: [backend/app/models], api_dirs: [backend/app/api]}
 drift_paths: ["backend/app/workers/**"]     # extra paths that count as UI/API/background
 pr_sections: ["Change to existing", "What the user sees"]
