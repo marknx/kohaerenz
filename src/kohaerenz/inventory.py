@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-from .core import KzError, Repo, as_list
+from .core import KzError, Repo, as_list, match
 
 PAGE_RE = re.compile(r"^page\.(tsx|jsx|ts|js|mdx)$")
 DATA_FEATURE_RE = re.compile(r"""data-feature=["']([\w.:/-]+)["']""")
@@ -28,14 +28,18 @@ def route_for(rel: str, app_dir: str) -> str | None:
     return "/" + "/".join(segs)
 
 
-def _walk(root: Path, rel_dir: str, exts: tuple[str, ...]):
-    base = root / rel_dir
-    for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        for name in sorted(filenames):
-            if name.endswith(exts):
-                full = Path(dirpath) / name
-                yield full.relative_to(root).as_posix(), full
+def _walk(repo: Repo, rel_dir: str, exts: tuple[str, ...], exclude: list[str]):
+    """Files under rel_dir that git would see (gitignored ones never), minus adapter excludes."""
+    files = repo.visible_files()
+    if files is None:  # git unusable: plain disk walk
+        files = []
+        for dirpath, dirnames, filenames in os.walk(repo.root / rel_dir):
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+            files += [(Path(dirpath) / n).relative_to(repo.root).as_posix() for n in sorted(filenames)]
+    prefix = "" if rel_dir.strip("/") in ("", ".") else rel_dir.strip("/") + "/"
+    for rel in files:
+        if rel.startswith(prefix) and rel.endswith(exts) and not match(rel, exclude):
+            yield rel, repo.root / rel
 
 
 def nextjs(repo: Repo, a: dict, notes: list[str]) -> dict:
@@ -43,11 +47,12 @@ def nextjs(repo: Repo, a: dict, notes: list[str]) -> dict:
     if not (repo.root / app_dir).is_dir():
         notes.append(f"nextjs-app: app dir '{app_dir}' not found - routes skipped")
         return {}
-    routes = {r for rel, _ in _walk(repo.root, app_dir, (".tsx", ".jsx", ".ts", ".js", ".mdx"))
+    exclude = as_list(a.get("exclude"))
+    routes = {r for rel, _ in _walk(repo, app_dir, (".tsx", ".jsx", ".ts", ".js", ".mdx"), exclude)
               if (r := route_for(rel, app_dir))}
     features: set[str] = set()
     for src in as_list(a.get("src_dirs")) or [app_dir]:
-        for _, full in _walk(repo.root, src, (".tsx", ".jsx", ".ts", ".js")):
+        for _, full in _walk(repo, src, (".tsx", ".jsx", ".ts", ".js"), exclude):
             features.update(DATA_FEATURE_RE.findall(full.read_text(encoding="utf-8", errors="replace")))
     return {"routes": sorted(routes), "data_features": sorted(features)}
 
@@ -71,7 +76,7 @@ def fastapi(repo: Repo, a: dict, notes: list[str]) -> dict:
         if not (repo.root / model_dir).is_dir():
             notes.append(f"fastapi: model dir '{model_dir}' not found")
             continue
-        for _, full in _walk(repo.root, model_dir, (".py",)):
+        for _, full in _walk(repo, model_dir, (".py",), as_list(a.get("exclude"))):
             tables.update(tables_in(full.read_text(encoding="utf-8", errors="replace")))
     out["tables"] = sorted(tables)
     return out

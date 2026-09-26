@@ -32,8 +32,8 @@ DEFAULTS: dict = {
 
 
 ADAPTER_KEYS = {
-    "nextjs-app": {"name", "app_dir", "src_dirs"},
-    "fastapi": {"name", "openapi", "model_dirs", "api_dirs"},
+    "nextjs-app": {"name", "app_dir", "src_dirs", "exclude"},
+    "fastapi": {"name", "openapi", "model_dirs", "api_dirs", "exclude"},
     "generic": {"name"},
 }
 
@@ -130,6 +130,9 @@ class Repo:
             if not isinstance(a, dict) or a.get("name") not in ADAPTER_KEYS:
                 raise KzError(f"config: unknown adapter {a!r} (use {', '.join(ADAPTER_KEYS)})")
             unknown += [f"'adapters.{a['name']}.{k}'" for k in a if k not in ADAPTER_KEYS[a["name"]]]
+            ex = a.get("exclude", [])
+            if not isinstance(ex, list) or not all(isinstance(g, str) for g in ex):
+                raise KzError(f"config: adapters.{a['name']}.exclude must be a list of glob strings")
             rel_paths += [v for k in ("app_dir", "openapi") if k in a for v in [a[k]]]
             rel_paths += [v for k in ("src_dirs", "model_dirs", "api_dirs") for v in as_list(a.get(k))]
         if unknown:
@@ -174,6 +177,22 @@ class Repo:
 
     def tracked_files(self) -> list[str]:
         return [p for p in self.git("ls-files").stdout.splitlines() if p]
+
+    def visible_files(self) -> list[str] | None:
+        """Files git would see: tracked + untracked-not-ignored, present on disk. None if git fails."""
+        if "visible" not in self._cache:
+            proc = self.git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+            self._cache["visible"] = None if proc.returncode else sorted(
+                {p for p in proc.stdout.split("\0") if p and (self.root / p).is_file()})
+        return self._cache["visible"]
+
+    def is_visible(self, rel: str) -> bool:
+        """A git-visible file, or a directory containing one (falls back to the disk)."""
+        files = self.visible_files()
+        if files is None:
+            return (self.root / rel).exists()
+        rel = rel.rstrip("/")
+        return rel in files or any(f.startswith(rel + "/") for f in files)
 
     def diff(self, base: str | None = None) -> Diff | None:
         """Committed changes from merge-base(base, HEAD) to HEAD; None if base is missing."""

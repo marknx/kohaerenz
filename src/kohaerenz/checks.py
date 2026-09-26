@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import datetime as dt
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -198,7 +199,7 @@ def check_timebomb(c: Ctx) -> list[Finding]:
         if kind == "feature":
             out.append(Finding("timebomb", eid, f"feature {eid} was due for retirement on {due} and is still on the map"))
             continue
-        files = files if files is not None else c.repo.tracked_files()
+        files = files if files is not None else (c.repo.visible_files() or [])
         alive = [f for f in files if match(f, as_list(e.get("paths")))]
         if alive:
             out.append(Finding("timebomb", eid, f"{eid} was due on {due}; code still there: {', '.join(alive[:3])}"))
@@ -284,10 +285,11 @@ def check_links(c: Ctx) -> list[Finding]:
         for ref in dict.fromkeys(link_refs(p.read_text(encoding="utf-8", errors="replace"))):
             if match(ref, c.repo.cfg["links_ignore"]):
                 continue
-            if (p.parent / ref).exists() or (c.repo.root / ref).exists():
-                continue
+            near = os.path.relpath(os.path.normpath(p.parent / ref), c.repo.root)
+            if c.repo.is_visible(near) or c.repo.is_visible(os.path.normpath(ref)):
+                continue  # gitignored files do not count: CI would not have them
             if "/" not in ref:  # a bare file name is fine if such a file exists anywhere
-                names = names if names is not None else {f.rsplit("/", 1)[-1] for f in c.repo.tracked_files()}
+                names = names if names is not None else {f.rsplit("/", 1)[-1] for f in c.repo.visible_files() or []}
                 if ref in names:
                     continue
             out.append(Finding("links", f"{doc}:{ref}", f"{doc} points to '{ref}', which does not exist"))
