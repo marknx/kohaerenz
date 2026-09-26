@@ -97,9 +97,11 @@ def cmd_check(repo: Repo, a) -> int:
         checks.write_baseline(bpath, set(by_key) | keep)
         print(f"baseline {repo.rel('baseline')}: {len(set(by_key) | keep)} keys (-{len(fixed)} fixed, +{len(new)} new)")
         return 0
+    failed = bool(new or (a.strict and fixed) or (a.require_all and skipped))
+    result = "FAIL" if failed else "OK" + (f" ({len(skipped)} skipped)" if skipped else "")
     if a.json:
-        print(json.dumps({"new": [vars(by_key[k]) | {"key": k} for k in new], "known": known, "fixed": fixed,
-                          "skipped": skipped, "notes": notes}, indent=2))
+        print(json.dumps({"result": result, "new": [vars(by_key[k]) | {"key": k} for k in new], "known": known,
+                          "fixed": fixed, "skipped": skipped, "notes": notes}, indent=2))
     else:
         for k in new:
             print(f"NEW    {k}  {by_key[k].message}")
@@ -111,9 +113,8 @@ def cmd_check(repo: Repo, a) -> int:
             print(f"skip   {name}: {reason}")
         for n in notes:
             print(f"note   {n}")
-        print(f"kz check: {len(new)} new, {len(known)} known, {len(fixed)} fixed, {len(skipped)} skipped"
-              f" -> {'FAIL' if new or (a.strict and fixed) else 'OK'}")
-    return 1 if new or (a.strict and fixed) else 0
+        print(f"kz check: {len(new)} new, {len(known)} known, {len(fixed)} fixed, {len(skipped)} skipped -> {result}")
+    return 1 if failed else 0
 
 
 def default_adapters(typ: str, root: Path) -> list[dict]:
@@ -166,6 +167,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--fast", action="store_true", help="skip inventory checks (map, generated)")
     s.add_argument("--only", help="comma-separated check names")
     s.add_argument("--strict", action="store_true", help="also fail on fixed keys still in the baseline")
+    s.add_argument("--require-all", action="store_true", help="fail when any check was skipped (for CI)")
     s.add_argument("--update-baseline", action="store_true")
     s.add_argument("--allow-grow", action="store_true", help="let --update-baseline add keys")
     s.add_argument("--json", action="store_true")

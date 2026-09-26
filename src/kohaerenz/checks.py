@@ -1,6 +1,7 @@
 """The checks behind `kz check`. Each returns a list of findings with stable keys."""
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
 import re
@@ -82,6 +83,21 @@ def check_states(c: Ctx) -> list[Finding]:
     return out
 
 
+def _py_test_names(text: str) -> set[str] | None:
+    """Function names and Class::method names defined in a Python file (None if unparsable)."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    names, funcs = set(), (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(tree):
+        if isinstance(node, funcs):
+            names.add(node.name)
+        elif isinstance(node, ast.ClassDef):
+            names |= {f"{node.name}::{n.name}" for n in node.body if isinstance(n, funcs)}
+    return names
+
+
 def _guard_ok(repo: Repo, guard) -> bool:
     spec = guard.get("test") if isinstance(guard, dict) else guard
     if not spec:
@@ -90,7 +106,13 @@ def _guard_ok(repo: Repo, guard) -> bool:
     file = repo.root / path
     if not file.is_file():
         return False
-    return not name or name.split("::")[-1] in file.read_text(encoding="utf-8", errors="replace")
+    if not name:
+        return True
+    text = file.read_text(encoding="utf-8", errors="replace")
+    names = _py_test_names(text) if path.endswith(".py") else None
+    if names is not None:
+        return name in names
+    return re.search(rf"(?<![\w-]){re.escape(name.split('::')[-1])}(?![\w-])", text) is not None
 
 
 def check_rules(c: Ctx) -> list[Finding]:
@@ -294,6 +316,11 @@ def run(repo: Repo, base: str | None = None, pr_body: str | None = None, fast: b
     inv, notes = (None, []) if fast else inventory.build(repo)
     needs_diff = any("diff" in CHECKS[n][1] for n in names)
     diff = repo.diff(base) if needs_diff else None
+    if needs_diff and diff is None and base:
+        raise KzError(f"diff base '{base}' not found - run git fetch or pass an existing ref")
+    if needs_diff and diff is None and repo.cfg["stufe"] >= 1:
+        raise KzError(f"configured main_branch '{repo.cfg['main_branch']}' not found - "
+                      "run git fetch or fix .kohaerenz.yaml")
     missing = {
         "inventory": "--fast" if fast else (None if inv is not None else "no inventory adapter configured"),
         "diff": None if diff else f"no diff base ({base or repo.cfg['main_branch']} not found)",

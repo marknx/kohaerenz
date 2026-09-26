@@ -31,6 +31,13 @@ DEFAULTS: dict = {
 }
 
 
+ADAPTER_KEYS = {
+    "nextjs-app": {"name", "app_dir", "src_dirs"},
+    "fastapi": {"name", "openapi", "model_dirs", "api_dirs"},
+    "generic": {"name"},
+}
+
+
 class KzError(Exception):
     """Usage or configuration error (exit code 2)."""
 
@@ -109,10 +116,28 @@ class Repo:
                 self.cfg["paths"].update(value)
             else:
                 self.cfg[key] = value
-        for a in as_list(self.cfg["adapters"]):
-            if not isinstance(a, dict) or a.get("name") not in ("nextjs-app", "fastapi", "generic"):
-                raise KzError(f"config: unknown adapter {a!r} (use nextjs-app, fastapi, generic)")
+        self._validate(raw)
         self._cache: dict = {}
+
+    def _validate(self, raw: dict) -> None:
+        """Unknown keys and paths outside the repo are errors: a typo must never turn checks off."""
+        unknown = [f"'{k}'" for k in raw if k not in DEFAULTS]
+        unknown += [f"'paths.{k}'" for k in self.cfg["paths"] if k not in DEFAULTS["paths"]]
+        if self.cfg["stufe"] not in (0, 1, 2):
+            raise KzError(f"config: stufe must be 0, 1 or 2, not {self.cfg['stufe']!r}")
+        rel_paths = list(self.cfg["paths"].values()) + as_list(self.cfg["entry_docs"])
+        for a in as_list(self.cfg["adapters"]):
+            if not isinstance(a, dict) or a.get("name") not in ADAPTER_KEYS:
+                raise KzError(f"config: unknown adapter {a!r} (use {', '.join(ADAPTER_KEYS)})")
+            unknown += [f"'adapters.{a['name']}.{k}'" for k in a if k not in ADAPTER_KEYS[a["name"]]]
+            rel_paths += [v for k in ("app_dir", "openapi") if k in a for v in [a[k]]]
+            rel_paths += [v for k in ("src_dirs", "model_dirs", "api_dirs") for v in as_list(a.get(k))]
+        if unknown:
+            raise KzError(f"config: unknown key(s) {', '.join(unknown)}")
+        root = self.root.resolve()
+        for rel in rel_paths:
+            if not (root / str(rel)).resolve().is_relative_to(root):
+                raise KzError(f"config: path '{rel}' points outside the repo")
 
     def git(self, *args: str) -> subprocess.CompletedProcess:
         return git(list(args), self.root)

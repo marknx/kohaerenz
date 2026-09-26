@@ -169,6 +169,8 @@ def test_init_creates_stage_files_and_never_overwrites(repo):
     assert "fastapi" in (repo.path / ".kohaerenz.yaml").read_text()
     assert "next     kz inventory --write" in out
     repo.commit()
+    assert repo.kz("check")[0] == 2  # stage 2 needs a resolvable main branch
+    repo.mark_main()
     assert repo.kz("check")[0] == 1  # stage 2 with adapter: inventory not written yet
     repo.kz("inventory", "--write")
     repo.commit()
