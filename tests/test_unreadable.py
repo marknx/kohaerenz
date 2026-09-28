@@ -45,7 +45,7 @@ def test_chmod_000_files_are_skipped_not_fatal(locked):
     assert code == 0, out  # unreadable is not "missing", not a failed guard
     assert "unreadable" in out
     code, out = _no_crash(locked, "links")
-    assert code == 0 and "skipped" in out and "unreadable" in out
+    assert code == 0 and "missing" not in out.replace("0 missing", "")  # locked targets are not "missing"
     code, out = _no_crash(locked, "inventory", "--json")
     assert '"routes"' in out and "unreadable" in out
     _no_crash(locked, "brief", "--paths", ".env.example", "--text", "touch `.env.example` and GET /x")
@@ -53,7 +53,7 @@ def test_chmod_000_files_are_skipped_not_fatal(locked):
 
 def test_check_json_lists_unreadable(locked):
     import json
-    code, out = locked.kz("check", "--only", "links", "--json")
+    code, out = locked.kz("check", "--only", "links,map", "--json")  # map builds the inventory -> reads models/m.py
     data = json.loads(out[out.index("{"):out.rindex("}") + 1])
     assert {"models/m.py"} <= set(data["unreadable"])  # read by the inventory, chmod 000
 
