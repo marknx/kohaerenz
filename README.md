@@ -142,6 +142,14 @@ Code anchors: `# rule: R-dispatch-cooldown - why`.
 **ADR head** (optional, `docs/decisions/*.md`): YAML front matter with `status`, `supersedes`, `retires`,
 `affected_paths`, `retire_by`, `enforced_by`.
 
+## Unreadable files
+
+`kz` never crashes on a file it may not stat or read (sandboxes often deny `.env*`). Such a file is skipped: it
+does not count as missing for `links`, not as a failed guard for `rules`, and adds nothing to the inventory. A single
+line `note: skipped N unreadable file(s): ...` goes to stderr, and `check --json` lists them under `unreadable`. Only
+kz's own inputs (`.kohaerenz.yaml`, the map, the rules, the baseline, `--pr-body-file`) are required: if one of those
+cannot be read, `kz` exits 2 with a message.
+
 ## Exit codes
 
 `0` ok · `1` findings (new red, behind main for `fresh`, missing links) · `2` usage or config error.
