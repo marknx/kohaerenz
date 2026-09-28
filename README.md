@@ -29,7 +29,7 @@ Global options: `-C DIR` (run in another directory), `--config FILE` (config out
 
 | Check | Red when … | Needs |
 |---|---|---|
-| `map` | an inventory item (route, data-feature, endpoint, table) is in no feature and not in `internal` | adapter |
+| `map` | an inventory item (route, data-feature, endpoint, table) is in no feature and not in `internal`; a map entry (exact or pattern) matches no inventory item (stale) | adapter |
 | `orphans` | an active feature is in no journey; a journey has no existing test file; a journey step names an unknown feature (unless `status: missing`) | – |
 | `states` | a feature state has neither `next` nor `end_reason` | – |
 | `rules` | an `active` rule has no existing guard test (`path::test_name`); a `rule: R-…` anchor in code names an unknown rule | `regeln.yaml` |
@@ -111,6 +111,13 @@ features:
   - {id: F-legacy, status: retire, retire_by: 2026-11-01}
 internal: ["route:/debug", "endpoint:GET /healthz"]
 ```
+
+**Patterns.** Entries in `api`, `tables`, `ui.route` and `internal` may be fnmatch patterns, so a large API stays
+readable: `api: ["* /api/v1/agent/*"]`, `tables: ["agent_*"]`, `internal: ["endpoint:GET /api/v1/internal/*"]`.
+They match the inventory strings (`METHOD /path`, table name, route) and `*` also crosses `/`. In routes only `*`
+and `?` are wildcards - `[id]` stays a literal Next.js segment. An item may be covered by several features; `brief`
+and `scope` list all of them. An entry that matches nothing is red in `map` (`map:stale-pattern:<kind>:<pattern>`
+or `map:stale-ref:<kind>:<value>`), but only for kinds the inventory covers (no OpenAPI file = no endpoint check).
 
 **`docs/produkt/regeln.yaml`** - rules, rejected ideas, dead code.
 
