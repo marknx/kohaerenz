@@ -371,7 +371,8 @@ def run(repo: Repo, base: str | None = None, pr_body: str | None = None, fast: b
         only: list[str] | None = None, today: dt.date | None = None):
     """Run checks -> (findings, {skipped check: reason}, notes)."""
     names = only or list(CHECKS)
-    inv, notes = (None, []) if fast else inventory.build(repo)
+    needs_inv = any("inventory" in CHECKS[n][1] for n in names)
+    inv, notes = inventory.build(repo) if needs_inv and not fast else (None, [])
     needs_diff = any("diff" in CHECKS[n][1] for n in names)
     diff = repo.diff(base) if needs_diff else None
     if needs_diff and diff is None and base:

@@ -197,7 +197,7 @@ def test_usage_and_config_errors_exit_2(repo, tmp_path):
     repo.write(".kohaerenz.yaml", "")
     assert repo.kz("check", "--only", "nosuch")[0] == 2
     assert repo.kz("bogus")[0] == 2
-    assert repo.kz("--version")[1].strip() == "kz 0.1.3"
+    assert repo.kz("--version")[1].strip() == "kz 0.1.4"
 
 
 def test_external_config_file(repo, tmp_path):
