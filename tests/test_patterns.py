@@ -1,5 +1,6 @@
 """v0.1.2: glob patterns in landkarte entries, stale entries, multi-feature matches."""
 import json
+import re
 
 MAP = "docs/produkt/landkarte.yaml"
 CFG = """\
@@ -12,7 +13,7 @@ OPENAPI = {"paths": {"/api/v1/agent/{id}": {"get": {}, "delete": {}}, "/api/v1/a
 
 
 def keys(out):
-    return sorted(l.split()[1] for l in out.splitlines() if l.startswith("NEW"))
+    return sorted(m.group(1) for l in out.splitlines() if (m := re.match(r"NEW\s+(.+?)  ", l)))  # keys may contain spaces
 
 
 def _tree(repo, landkarte):

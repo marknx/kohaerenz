@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import fnmatch
 import json
 import os
 import re
@@ -33,23 +34,57 @@ class Ctx:
     today: dt.date
 
 
-def feature_refs(f: dict) -> set[str]:
-    refs = set()
+KIND_KEYS = {"route": "routes", "data_feature": "data_features", "endpoint": "endpoints", "table": "tables"}
+
+
+def is_pattern(kind: str, entry: str) -> bool:
+    """Routes use [id] literally (Next.js), so only * and ? make a route entry a pattern."""
+    return any(ch in entry for ch in ("*?" if kind == "route" else "*?["))
+
+
+def entry_matches(kind: str, entry: str, value: str) -> bool:
+    if entry == value:
+        return True
+    if not is_pattern(kind, entry):
+        return False
+    return fnmatch.fnmatchcase(value, entry.replace("[", "[[]") if kind == "route" else entry)
+
+
+def feature_refs(f: dict) -> list[tuple[str, str]]:
+    refs = []
     for ui in as_list(f.get("ui")):
         if isinstance(ui, dict):
-            refs |= {f"route:{r}" for r in as_list(ui.get("route"))}
-            refs |= {f"data_feature:{d}" for d in as_list(ui.get("data_feature"))}
-    refs |= {f"endpoint:{e}" for e in as_list(f.get("api"))}
-    refs |= {f"table:{t}" for t in as_list(f.get("tables"))}
+            refs += [("route", str(r)) for r in as_list(ui.get("route"))]
+            refs += [("data_feature", str(d)) for d in as_list(ui.get("data_feature"))]
+    refs += [("endpoint", str(e)) for e in as_list(f.get("api"))]
+    refs += [("table", str(t)) for t in as_list(f.get("tables"))]
     return refs
 
 
 def check_map(c: Ctx) -> list[Finding]:
-    covered = set(str(i) for i in as_list(c.repo.landkarte().get("internal")))
+    refs = [tuple(str(i).split(":", 1)) for i in as_list(c.repo.landkarte().get("internal"))]
+    out = [Finding("map", f"bad-internal:{r[0]}", f"internal entry '{r[0]}' must be '<kind>:<value>' "
+                   f"with kind in {', '.join(KIND_KEYS)}") for r in refs if len(r) != 2 or r[0] not in KIND_KEYS]
+    refs = [r for r in refs if len(r) == 2 and r[0] in KIND_KEYS]
     for f in c.repo.features():
-        covered |= feature_refs(f)
-    return [Finding("map", f"{kind}:{value}", f"{kind} '{value}' is in no feature (add it or list it as internal)")
-            for kind, value in inventory.items(c.inv) if f"{kind}:{value}" not in covered]
+        refs += feature_refs(f)
+    by_kind: dict[str, list[str]] = {}
+    for kind, entry in dict.fromkeys(refs):
+        by_kind.setdefault(kind, []).append(entry)
+    used = set()
+    for kind, value in inventory.items(c.inv):
+        hits = [e for e in by_kind.get(kind, []) if entry_matches(kind, e, value)]
+        used |= {(kind, e) for e in hits}
+        if not hits:
+            out.append(Finding("map", f"{kind}:{value}", f"{kind} '{value}' is in no feature (add it or list it as internal)"))
+    for kind, entries in by_kind.items():
+        if KIND_KEYS[kind] not in c.inv:  # no inventory for this kind: cannot tell stale
+            continue
+        for e in entries:
+            if (kind, e) not in used:
+                what = "stale-pattern" if is_pattern(kind, e) else "stale-ref"
+                out.append(Finding("map", f"{what}:{kind}:{e}", f"{kind} entry '{e}' matches nothing in the inventory"))
+    return out
 
 
 def _step_feature(step) -> str | None:

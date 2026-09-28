@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from .checks import ANCHOR_RE
+from .checks import ANCHOR_RE, entry_matches, feature_refs
 from .core import KzError, Repo, as_list, freshness, match
 from .inventory import route_for
 
@@ -23,9 +23,12 @@ def overlaps(paths: list[str], globs: list[str]) -> bool:
 def feature_touched(repo: Repo, f: dict, paths: list[str]) -> bool:
     if overlaps(paths, as_list(f.get("paths"))):
         return True
-    routes = {r for ui in as_list(f.get("ui")) if isinstance(ui, dict) for r in as_list(ui.get("route"))}
+    routes = [e for kind, e in feature_refs(f) if kind == "route"]
     app = repo.adapter("nextjs-app")
-    return bool(app and routes and any(route_for(p, app.get("app_dir", "app")) in routes for p in paths))
+    if not (app and routes):
+        return False
+    page_routes = [r for p in paths if (r := route_for(p, app.get("app_dir", "app")))]
+    return any(entry_matches("route", e, r) for e in routes for r in page_routes)
 
 
 def touched_map(repo: Repo, paths: list[str]) -> tuple[list[dict], list[dict]]:
