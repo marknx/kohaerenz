@@ -87,3 +87,11 @@ def test_brief_and_scope_list_all_features_matching_a_route_pattern(repo):
     repo.mark_main().write("web/app/agents/[id]/page.tsx", "y").commit()
     code, out = repo.kz("scope")
     assert "Features touched: F-agents, F-agent-detail" in out
+
+
+def test_route_pattern_keeps_brackets_literal(repo):
+    repo.write(".kohaerenz.yaml", "adapters: [{name: nextjs-app, app_dir: web/app}]\n")
+    repo.write("web/app/tasks/[id]/edit/page.tsx", "x").write("web/app/tasks/[id]/log/page.tsx", "x")
+    repo.write(MAP, 'features:\n  - {id: F-task, ui: {route: "/tasks/[id]/*"}}\n').commit()
+    code, out = repo.kz("check", "--only", "map")
+    assert code == 0, out
