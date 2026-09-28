@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from .checks import ANCHOR_RE, entry_matches, feature_refs
+from .checks import ANCHOR_RE, _adr_files, entry_matches, feature_refs
 from .core import KzError, Repo, as_list, freshness, match
 from .inventory import route_for
 
@@ -66,11 +66,11 @@ def exists_already(repo: Repo, text: str, max_tokens: int = 6, max_hits: int = 3
 def matching_adrs(repo: Repo, text: str, limit: int = 5) -> list[str]:
     adr_dir = repo.path("decisions")
     words = set(WORD_RE.findall(text.lower())) - STOP
-    if not adr_dir.is_dir() or not words:
+    if not words:
         return []
     scored = []
-    for p in sorted(adr_dir.glob("*.md")):
-        title = next((l[2:].strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines()
+    for p in _adr_files(repo):
+        title = next((l[2:].strip() for l in (repo.read(p) or "").splitlines()
                       if l.startswith("# ")), p.stem)
         hay = f"{p.stem} {title}".lower()
         score = sum(1 for w in words if w in hay)

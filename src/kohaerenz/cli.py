@@ -10,7 +10,7 @@ import yaml
 
 from . import __version__, checks, inventory
 from .brief import brief, scope, scope_lines
-from .core import KzError, Repo, freshness
+from .core import KzError, Repo, freshness, probe
 
 AGENTS_STUB = """# AGENTS.md
 
@@ -78,9 +78,12 @@ def cmd_check(repo: Repo, a) -> int:
     unknown = [n for n in only or [] if n not in checks.CHECKS]
     if unknown:
         raise KzError(f"unknown check(s): {', '.join(unknown)}")
-    if a.pr_body_file and not Path(a.pr_body_file).is_file():
-        raise KzError(f"PR body file not found: {a.pr_body_file}")
-    body = Path(a.pr_body_file).read_text(encoding="utf-8") if a.pr_body_file else None
+    body = None
+    if a.pr_body_file:
+        try:
+            body = Path(a.pr_body_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise KzError(f"PR body file not readable: {a.pr_body_file} ({exc.strerror or exc})") from exc
     findings, skipped, notes = checks.run(repo, a.base, body, a.fast, only)
     by_key = {f.key: f for f in findings}
     bpath = repo.path("baseline")
@@ -101,7 +104,8 @@ def cmd_check(repo: Repo, a) -> int:
     result = "FAIL" if failed else "OK" + (f" ({len(skipped)} skipped)" if skipped else "")
     if a.json:
         print(json.dumps({"result": result, "new": [vars(by_key[k]) | {"key": k} for k in new], "known": known,
-                          "fixed": fixed, "skipped": skipped, "notes": notes}, indent=2))
+                          "fixed": fixed, "skipped": skipped, "notes": notes,
+                          "unreadable": sorted(repo.unreadable)}, indent=2))
     else:
         for k in new:
             print(f"NEW    {k}  {by_key[k].message}")
@@ -119,7 +123,7 @@ def cmd_check(repo: Repo, a) -> int:
 
 def default_adapters(typ: str, root: Path) -> list[dict]:
     if typ == "nextjs":
-        app = "src/app" if (root / "src/app").is_dir() else "app"
+        app = "src/app" if probe(root / "src/app") == "dir" else "app"
         return [{"name": "nextjs-app", "app_dir": app, "src_dirs": [app.rsplit("/", 1)[0] if "/" in app else "."]}]
     if typ == "fastapi":
         return [{"name": "fastapi", "openapi": "openapi.json", "model_dirs": ["app/models"]}]
@@ -137,7 +141,7 @@ def cmd_init(repo: Repo, a) -> int:
         files[repo.rel("baseline")] = json.dumps({"version": 1, "keys": []}, indent=2) + "\n"
     for rel, content in files.items():
         p = repo.root / rel
-        if p.exists():
+        if probe(p) is not None:
             print(f"kept     {rel} (exists)")
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -192,10 +196,18 @@ COMMANDS = {"fresh": cmd_fresh, "links": cmd_links, "brief": cmd_brief, "check":
 def main(argv: list[str] | None = None) -> int:
     a = parser().parse_args(argv)
     try:
-        return COMMANDS[a.cmd](Repo(a.cwd, a.config), a)
+        repo = Repo(a.cwd, a.config)
+        code = COMMANDS[a.cmd](repo, a)
     except KzError as exc:
         print(f"kz: error: {exc}", file=sys.stderr)
         return 2
+    except OSError as exc:  # last resort: a file access we did not guard must not crash a hook
+        print(f"kz: error: cannot access {exc.filename or 'a file'} ({exc.strerror or exc})", file=sys.stderr)
+        return 2
+    if repo.unreadable:
+        shown = ", ".join(sorted(repo.unreadable)[:5]) + (" ..." if len(repo.unreadable) > 5 else "")
+        print(f"note: skipped {len(repo.unreadable)} unreadable file(s): {shown}", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":

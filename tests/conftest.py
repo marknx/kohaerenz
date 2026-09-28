@@ -54,5 +54,10 @@ class TmpRepo:
 
 
 @pytest.fixture
-def repo(tmp_path) -> TmpRepo:
+def repo(tmp_path, monkeypatch) -> TmpRepo:
+    # hermetic git: the developer's global excludes (e.g. .env*) must not change test repos
+    empty = tmp_path / "gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     return TmpRepo(tmp_path / "proj")

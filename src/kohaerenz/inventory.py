@@ -44,7 +44,7 @@ def _walk(repo: Repo, rel_dir: str, exts: tuple[str, ...], exclude: list[str]):
 
 def nextjs(repo: Repo, a: dict, notes: list[str]) -> dict:
     app_dir = a.get("app_dir", "app")
-    if not (repo.root / app_dir).is_dir():
+    if repo.kind(repo.root / app_dir) != "dir":
         notes.append(f"nextjs-app: app dir '{app_dir}' not found - routes skipped")
         return {}
     exclude = as_list(a.get("exclude"))
@@ -53,7 +53,7 @@ def nextjs(repo: Repo, a: dict, notes: list[str]) -> dict:
     features: set[str] = set()
     for src in as_list(a.get("src_dirs")) or [app_dir]:
         for _, full in _walk(repo, src, (".tsx", ".jsx", ".ts", ".js"), exclude):
-            features.update(DATA_FEATURE_RE.findall(full.read_text(encoding="utf-8", errors="replace")))
+            features.update(DATA_FEATURE_RE.findall(repo.read(full) or ""))
     return {"routes": sorted(routes), "data_features": sorted(features)}
 
 
@@ -61,9 +61,10 @@ def fastapi(repo: Repo, a: dict, notes: list[str]) -> dict:
     out: dict = {}
     spec_rel = a.get("openapi", "openapi.json")
     spec = repo.root / spec_rel
-    if spec.is_file():
+    spec_text = repo.read(spec) if repo.kind(spec) == "file" else None
+    if spec_text is not None:
         try:
-            paths = json.loads(spec.read_text(encoding="utf-8")).get("paths", {})
+            paths = json.loads(spec_text).get("paths", {})
         except json.JSONDecodeError as exc:
             raise KzError(f"fastapi: {spec_rel} is not valid JSON ({exc})") from exc
         out["endpoints"] = sorted(f"{m.upper()} {p}" for p, ops in paths.items()
@@ -73,11 +74,11 @@ def fastapi(repo: Repo, a: dict, notes: list[str]) -> dict:
                      "(export it, e.g. json.dumps(app.openapi()))")
     tables: set[str] = set()
     for model_dir in as_list(a.get("model_dirs")):
-        if not (repo.root / model_dir).is_dir():
+        if repo.kind(repo.root / model_dir) != "dir":
             notes.append(f"fastapi: model dir '{model_dir}' not found")
             continue
         for _, full in _walk(repo, model_dir, (".py",), as_list(a.get("exclude"))):
-            tables.update(tables_in(full.read_text(encoding="utf-8", errors="replace")))
+            tables.update(tables_in(repo.read(full) or ""))
     out["tables"] = sorted(tables)
     return out
 

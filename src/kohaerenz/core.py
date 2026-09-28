@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import fnmatch
+import os
+import stat
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -64,6 +66,8 @@ def load_yaml(path: Path) -> dict:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise KzError(f"{path.name}: invalid YAML ({exc})") from exc
+    except OSError as exc:
+        raise KzError(f"{path.name}: cannot read ({exc.strerror or exc})") from exc
     if not isinstance(data, dict):
         raise KzError(f"{path.name}: top level must be a mapping")
     return data
@@ -77,6 +81,17 @@ def match(path: str, patterns) -> bool:
         if not any(c in pat for c in "*?[") and path.startswith(pat.rstrip("/") + "/"):
             return True
     return False
+
+
+def probe(path: Path) -> str | None:
+    """'file', 'dir', None (missing) or 'unreadable' - never raises (sandboxes may deny stat)."""
+    try:
+        st = os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError:
+        return "unreadable"
+    return "dir" if stat.S_ISDIR(st.st_mode) else "file"
 
 
 def git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
@@ -104,9 +119,10 @@ class Repo:
             raise KzError(f"not a git repository: {cwd}")
         self.root = Path(proc.stdout.strip())
         cfg_file = Path(config_path) if config_path else self.root / ".kohaerenz.yaml"
-        if config_path and not cfg_file.exists():
+        self.unreadable: set[str] = set()
+        if config_path and probe(cfg_file) is None:
             raise KzError(f"config not found: {config_path}")
-        self.has_config = cfg_file.exists()
+        self.has_config = probe(cfg_file) is not None
         raw = load_yaml(cfg_file) if self.has_config else {}
         self.cfg = copy.deepcopy(DEFAULTS)
         for key, value in raw.items():
@@ -154,7 +170,7 @@ class Repo:
     def _doc(self, key: str) -> dict:
         if key not in self._cache:
             p = self.path(key)
-            self._cache[key] = load_yaml(p) if p.exists() else {}
+            self._cache[key] = load_yaml(p) if probe(p) is not None else {}
         return self._cache[key]
 
     def landkarte(self) -> dict:
@@ -175,6 +191,26 @@ class Repo:
     def ref_exists(self, ref: str) -> bool:
         return self.git("rev-parse", "--verify", "--quiet", ref + "^{commit}").returncode == 0
 
+    def note_unreadable(self, path: Path) -> None:
+        self.unreadable.add(path.relative_to(self.root).as_posix() if path.is_relative_to(self.root) else str(path))
+
+    def kind(self, path: Path) -> str | None:
+        """Like probe(), but remembers unreadable files for the 'skipped N unreadable' note."""
+        k = probe(path)
+        if k == "unreadable":
+            self.note_unreadable(path)
+        return k
+
+    def read(self, path: Path) -> str | None:
+        """File text, or None if missing or unreadable (the latter is noted)."""
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+            return None
+        except OSError:
+            self.note_unreadable(path)
+            return None
+
     def tracked_files(self) -> list[str]:
         return [p for p in self.git("ls-files").stdout.splitlines() if p]
 
@@ -183,14 +219,14 @@ class Repo:
         if "visible" not in self._cache:
             proc = self.git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
             self._cache["visible"] = None if proc.returncode else sorted(
-                {p for p in proc.stdout.split("\0") if p and (self.root / p).is_file()})
+                {p for p in proc.stdout.split("\0") if p and self.kind(self.root / p) in ("file", "unreadable")})
         return self._cache["visible"]
 
     def is_visible(self, rel: str) -> bool:
         """A git-visible file, or a directory containing one (falls back to the disk)."""
         files = self.visible_files()
         if files is None:
-            return (self.root / rel).exists()
+            return self.kind(self.root / rel) is not None
         rel = rel.rstrip("/")
         return rel in files or any(f.startswith(rel + "/") for f in files)
 
@@ -234,7 +270,11 @@ def freshness(repo: Repo, fetch: bool = False) -> tuple[list[str], int]:
     state = "up to date" if behind == 0 else "BEHIND"
     lines = [f"fresh: HEAD vs {main}: {behind} behind, {ahead} ahead - {state}"]
     fetch_head = repo.root / repo.git("rev-parse", "--git-path", "FETCH_HEAD").stdout.strip()
-    if not fetch and fetch_head.is_file():
-        hours = (time.time() - fetch_head.stat().st_mtime) / 3600
+    try:
+        mtime = os.stat(fetch_head).st_mtime if not fetch else None
+    except OSError:
+        mtime = None
+    if mtime is not None:
+        hours = (time.time() - mtime) / 3600
         lines.append(f"fresh: last fetch {hours:.1f} h ago (use --fetch to refresh)")
     return lines, behind

@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 from . import inventory
-from .core import Diff, Finding, KzError, Repo, as_list, match
+from .core import Diff, Finding, KzError, Repo, as_list, match, probe
 
 ANCHOR_RE = re.compile(r"\brule:\s*(R-[\w.-]*\w)")
 BACKTICK_RE = re.compile(r"`([^`\s]+)`")
@@ -102,7 +102,7 @@ def check_orphans(c: Ctx) -> list[Finding]:
             if fid not in known and not (isinstance(step, dict) and step.get("status") == "missing"):
                 out.append(Finding("orphans", f"{jid}:{fid}", f"journey {jid} uses unknown feature {fid}"))
         test = j.get("test")
-        if not test or not (c.repo.root / test).is_file():
+        if not test or c.repo.kind(c.repo.root / test) is None:
             out.append(Finding("orphans", f"{jid}:test", f"journey {jid} has no existing test file ({test or 'none'})"))
     for f in c.repo.features():
         if f.get("status", "active") == "active" and f.get("id") not in used:
@@ -140,11 +140,14 @@ def _guard_ok(repo: Repo, guard) -> bool:
         return False
     path, _, name = str(spec).partition("::")
     file = repo.root / path
-    if not file.is_file():
+    kind = repo.kind(file)
+    if kind is None or kind == "dir":
         return False
     if not name:
         return True
-    text = file.read_text(encoding="utf-8", errors="replace")
+    text = repo.read(file)
+    if text is None:  # exists but unreadable: noted, not treated as a missing guard
+        return True
     names = _py_test_names(text) if path.endswith(".py") else None
     if names is not None:
         return name in names
@@ -198,10 +201,24 @@ def _front_matter(text: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _adr_files(repo: Repo) -> list[Path]:
+    adr_dir = repo.path("decisions")
+    if repo.kind(adr_dir) != "dir":
+        return []
+    try:
+        return sorted(adr_dir.glob("*.md"))
+    except OSError:
+        repo.note_unreadable(adr_dir)
+        return []
+
+
 def check_adr(c: Ctx) -> list[Finding]:
-    out, adr_dir = [], c.repo.path("decisions")
-    for p in sorted(adr_dir.glob("*.md")) if adr_dir.is_dir() else []:
-        head = _front_matter(p.read_text(encoding="utf-8", errors="replace"))
+    out = []
+    for p in _adr_files(c.repo):
+        text = c.repo.read(p)
+        if text is None:
+            continue
+        head = _front_matter(text)
         if not (head.get("supersedes") or head.get("retires")):
             continue
         if not head.get("affected_paths"):
@@ -290,10 +307,13 @@ def check_pr(c: Ctx) -> list[Finding]:
 
 def check_generated(c: Ctx) -> list[Finding]:
     p = c.repo.path("inventar")
-    if not p.is_file():
+    if c.repo.kind(p) is None:
         return [Finding("generated", "inventar", f"{c.repo.rel('inventar')} missing - run kz inventory --write")]
+    text = c.repo.read(p)
+    if text is None:
+        return []  # unreadable: noted, cannot compare
     try:
-        same = json.loads(p.read_text(encoding="utf-8")) == c.inv
+        same = json.loads(text) == c.inv
     except json.JSONDecodeError:
         same = False
     return [] if same else [Finding("generated", "inventar", f"{c.repo.rel('inventar')} does not match the code - run kz inventory --write")]
@@ -315,9 +335,10 @@ def check_links(c: Ctx) -> list[Finding]:
     out, names = [], None
     for doc in as_list(c.repo.cfg["entry_docs"]):
         p = c.repo.root / doc
-        if not p.is_file():
+        text = c.repo.read(p)
+        if text is None:
             continue
-        for ref in dict.fromkeys(link_refs(p.read_text(encoding="utf-8", errors="replace"))):
+        for ref in dict.fromkeys(link_refs(text)):
             if match(ref, c.repo.cfg["links_ignore"]):
                 continue
             near = os.path.relpath(os.path.normpath(p.parent / ref), c.repo.root)
@@ -362,7 +383,7 @@ def run(repo: Repo, base: str | None = None, pr_body: str | None = None, fast: b
         "inventory": "--fast" if fast else (None if inv is not None else "no inventory adapter configured"),
         "diff": None if diff else f"no diff base ({base or repo.cfg['main_branch']} not found)",
         "pr_body": None if pr_body is not None else "no --pr-body-file given",
-        "regeln": None if repo.path("regeln").is_file() else f"no {repo.rel('regeln')}",
+        "regeln": None if repo.kind(repo.path("regeln")) == "file" else f"no readable {repo.rel('regeln')}",
     }
     ctx = Ctx(repo, diff, pr_body, inv, today or dt.date.today())
     findings, skipped = [], {}
@@ -377,10 +398,12 @@ def run(repo: Repo, base: str | None = None, pr_body: str | None = None, fast: b
 
 
 def load_baseline(path: Path) -> set[str]:
-    if not path.is_file():
+    if probe(path) is None:
         return set()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise KzError(f"{path.name}: cannot read ({exc.strerror or exc})") from exc
     except json.JSONDecodeError as exc:
         raise KzError(f"{path.name}: invalid JSON ({exc})") from exc
     return set(data.get("keys", [])) if isinstance(data, dict) else set(data)

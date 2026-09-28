@@ -55,7 +55,7 @@ def test_check_json_lists_unreadable(locked):
     import json
     code, out = locked.kz("check", "--only", "links", "--json")
     data = json.loads(out[out.index("{"):out.rindex("}") + 1])
-    assert ".env.example" in data["unreadable"]
+    assert {"models/m.py"} <= set(data["unreadable"])  # read by the inventory, chmod 000
 
 
 def test_stat_and_open_raising_permission_error(repo, monkeypatch):
