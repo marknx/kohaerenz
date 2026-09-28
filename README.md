@@ -41,6 +41,8 @@ Global options: `-C DIR` (run in another directory), `--config FILE` (config out
 | `generated` | `inventar.json` is missing or differs from the code | adapter |
 | `links` | as `kz links` | – |
 
+The inventory is built only when `map` or `generated` runs, so `kz links` and `kz check --fast` stay quick.
+
 The diff base is the merge-base of `--base` (default `main_branch`, i.e. `origin/main`) and HEAD; only
 committed changes count. Checks whose input is missing are listed as `skip` and the result reads
 `OK (N skipped)`, never a plain `OK`. From stage 1 on, a `main_branch` (or `--base`) that cannot be resolved is a

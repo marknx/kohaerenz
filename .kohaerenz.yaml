@@ -1,6 +1,6 @@
 version: 1
 stufe: 0
-tool_version: 0.1.3
+tool_version: 0.1.4
 typ: python-cli
 main_branch: origin/main
 adapters: []
