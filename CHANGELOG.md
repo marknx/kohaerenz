@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- `drift:map` no longer fires when only test files changed: paths under `__tests__/` or `tests/`, or matching `*.test.*` / `*.spec.*`, never count as UI/API changes. Drift also ignores paths matching the per-adapter `exclude` globs.
+
 ## 0.1.4
 - The inventory is only built when a selected check needs it (`map`, `generated`): `kz links` and `kz check --only ...` without those checks are faster and read no source files.
 

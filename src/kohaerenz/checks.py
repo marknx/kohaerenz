@@ -23,6 +23,7 @@ EXTS = "md|markdown|ya?ml|json|toml|py|pyi|tsx?|jsx?|mjs|cjs|sh|txt|cfg|ini|sql|
 FILEISH_RE = re.compile(rf"(?:.*/)?[\w.-]*\.(?:{EXTS})|.+/")
 ENDPOINT_ADD_RE = re.compile(r"@\w+\.(get|post|put|patch|delete)\(")
 TABLE_ADD_RE = re.compile(r"__tablename__|\btable\s*=\s*True\b")
+TEST_PATTERNS = ("*__tests__/*", "*.test.*", "*.spec.*", "tests/*", "*/tests/*")
 
 
 @dataclass
@@ -258,6 +259,14 @@ def check_timebomb(c: Ctx) -> list[Finding]:
     return out
 
 
+def ignored_paths(repo: Repo) -> list[str]:
+    """Paths drift never counts as UI/API changes: test files plus per-adapter exclude globs."""
+    pats = list(TEST_PATTERNS)
+    for a in as_list(repo.cfg["adapters"]):
+        pats += as_list(a.get("exclude"))
+    return pats
+
+
 def watched_paths(repo: Repo) -> list[str]:
     pats = list(as_list(repo.cfg["drift_paths"]))
     for a in as_list(repo.cfg["adapters"]):
@@ -271,7 +280,7 @@ def watched_paths(repo: Repo) -> list[str]:
 
 
 def check_drift(c: Ctx) -> list[Finding]:
-    touched = [p for p in c.diff.files if match(p, watched_paths(c.repo))]
+    touched = [p for p in c.diff.files if match(p, watched_paths(c.repo)) and not match(p, ignored_paths(c.repo))]
     if not touched or c.repo.rel("landkarte") in c.diff.files:
         return []
     if c.pr_body and re.search(r"map unchanged because\s+\S", c.pr_body, re.I):

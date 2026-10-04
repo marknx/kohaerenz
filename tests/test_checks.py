@@ -181,6 +181,23 @@ def test_drift_flags_ui_change_without_map_change(repo):
     assert code == 1 and keys(out) == ["drift:map"]
 
 
+def test_drift_ignores_test_only_changes(repo):
+    cfg = """\
+        adapters:
+          - name: nextjs-app
+            app_dir: frontend-v2/src/app
+            src_dirs: [frontend-v2/src]
+        """
+    repo.write(".kohaerenz.yaml", cfg)
+    repo.write("frontend-v2/src/app/files/page.tsx", "a")
+    repo.write("frontend-v2/src/app/repos/page.tsx", "a")
+    repo.write(MAP, "features: []\n").commit().mark_main()
+    repo.write("frontend-v2/src/app/files/__tests__/FilesPage.test.tsx", "b")
+    repo.write("frontend-v2/src/app/repos/__tests__/ReposPage.test.tsx", "b").commit()
+    code, out = repo.kz("check", "--only", "drift")
+    assert code == 0, out
+
+
 def test_drift_clean_with_map_change_or_reason(repo):
     repo.write(".kohaerenz.yaml", NEXT_CFG).write("web/app/page.tsx", "a").write(MAP, "features: []\n").commit().mark_main()
     repo.write("web/app/page.tsx", "b").commit()

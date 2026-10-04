@@ -36,7 +36,7 @@ Global options: `-C DIR` (run in another directory), `--config FILE` (config out
 | `anchors` | a `rule: R-…` anchor line is deleted without changing `regeln.yaml`; a rule is removed without `removed: R-…` in the PR text | diff base |
 | `adr` | an ADR head with `supersedes`/`retires` lacks `affected_paths`; `retires` lacks `retire_by` | – |
 | `timebomb` | `retire_by` has passed and the feature is still on the map, or the `dead` paths still exist | – |
-| `drift` | UI/API paths changed but the map did not, and the PR text lacks `map unchanged because …` | diff base |
+| `drift` | UI/API paths changed but the map did not, and the PR text lacks `map unchanged because …`; test files (`__tests__/`, `*.test.*`, `*.spec.*`, `tests/`) and adapter `exclude` globs never count | diff base |
 | `pr` | the computed size is M/L (new page, endpoint or table, or > 3 files) and the PR text lacks a required section | diff base + PR text |
 | `generated` | `inventar.json` is missing or differs from the code | adapter |
 | `links` | as `kz links` | – |
